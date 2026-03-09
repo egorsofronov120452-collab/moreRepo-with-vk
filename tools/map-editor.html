@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Редактор точек такси</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; height: 100vh; display: flex; overflow: hidden; }
+
+    /* ─── Sidebar ─── */
+    #sidebar {
+      width: 320px; min-width: 320px; background: #1a1d2e; border-right: 1px solid #2d3148;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #sidebar-header { padding: 16px; border-bottom: 1px solid #2d3148; }
+    #sidebar-header h1 { font-size: 15px; font-weight: 700; color: #7c8cff; }
+    #sidebar-header p  { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    #sidebar-tabs { display: flex; border-bottom: 1px solid #2d3148; }
+    .tab-btn { flex: 1; padding: 10px; font-size: 12px; background: none; border: none; cursor: pointer; color: #94a3b8; transition: background .15s, color .15s; }
+    .tab-btn.active { color: #7c8cff; background: #1e2235; border-bottom: 2px solid #7c8cff; }
+
+    #sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
+
+    /* ─── Form ─── */
+    .form-group { margin-bottom: 10px; }
+    label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+    input, select, textarea {
+      width: 100%; padding: 7px 9px; background: #0f1117; border: 1px solid #2d3148;
+      border-radius: 6px; color: #e2e8f0; font-size: 13px; outline: none;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus { border-color: #7c8cff; }
+    select option { background: #0f1117; }
+    .hint { font-size: 10px; color: #6b7280; margin-top: 3px; }
+
+    .btn { display: block; width: 100%; padding: 8px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #7c8cff; color: #fff; }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-danger  { background: #ef4444; color: #fff; }
+    .btn-secondary { background: #2d3148; color: #e2e8f0; }
+    .btn + .btn { margin-top: 6px; }
+
+    /* ─── Point list ─── */
+    .point-item {
+      background: #131627; border: 1px solid #2d3148; border-radius: 8px;
+      padding: 10px; margin-bottom: 8px; cursor: pointer; transition: border-color .15s;
+    }
+    .point-item:hover { border-color: #7c8cff; }
+    .point-item.selected { border-color: #7c8cff; background: #1a1d2e; }
+    .point-name { font-size: 13px; font-weight: 600; }
+    .point-meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .point-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .point-actions button { flex: 1; padding: 5px; font-size: 11px; border-radius: 4px; border: none; cursor: pointer; }
+    .btn-edit-small { background: #2d3148; color: #e2e8f0; }
+    .btn-del-small  { background: #7f1d1d; color: #fca5a5; }
+
+    /* ─── Category badges ─── */
+    .cat-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px;
+      font-size: 10px; font-weight: 600; margin-right: 4px; margin-bottom: 4px;
+      cursor: pointer; border: 1px solid transparent; transition: all .15s;
+    }
+    .cat-badge.active { border-color: #7c8cff; }
+
+    /* ─── Canvas area ─── */
+    #map-area { flex: 1; position: relative; overflow: hidden; background: #0f1117; }
+    #map-canvas { display: block; cursor: crosshair; }
+    #map-hint {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.7); padding: 6px 14px; border-radius: 20px;
+      font-size: 11px; color: #94a3b8; pointer-events: none; white-space: nowrap;
+    }
+    #zoom-controls {
+      position: absolute; top: 12px; right: 12px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .zoom-btn {
+      width: 32px; height: 32px; background: #1a1d2e; border: 1px solid #2d3148;
+      border-radius: 6px; color: #e2e8f0; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .zoom-btn:hover { background: #2d3148; }
+
+    /* ─── Import/Export toolbar ─── */
+    #toolbar {
+      position: absolute; top: 12px; left: 12px;
+      display: flex; gap: 6px;
+    }
+    .tool-btn {
+      padding: 6px 12px; background: #1a1d2e; border: 1px solid #2d3148;
+      border-radius: 6px; color: #e2e8f0; font-size: 12px; cursor: pointer;
+    }
+    .tool-btn:hover { background: #2d3148; }
+
+    /* ─── Map image overlay ─── */
+    #map-img-overlay {
+      position: absolute; top: 0; left: 0; pointer-events: none;
+      image-rendering: pixelated;
+    }
+
+    /* ─── Coord display ─── */
+    #coords-display {
+      position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.6); padding: 3px 10px; border-radius: 12px;
+      font-size: 10px; color: #6b7280; pointer-events: none;
+    }
+
+    /* ─── Tab panels ─── */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .section-title { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; margin: 12px 0 6px; }
+
+    .cat-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #131627; border: 1px solid #2d3148; border-radius: 6px;
+      padding: 7px 10px; margin-bottom: 6px;
+    }
+    .cat-item-name { font-size: 12px; }
+    .cat-del-btn { background: #7f1d1d; color: #fca5a5; border: none; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<!-- ─── Sidebar ─── -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>Редактор точек такси</h1>
+    <p>Нажмите на карту чтобы разместить точку</p>
+  </div>
+
+  <div id="sidebar-tabs">
+    <button class="tab-btn active" data-tab="points">Точки</button>
+    <button class="tab-btn" data-tab="categories">Категории</button>
+    <button class="tab-btn" data-tab="add">Добавить</button>
+  </div>
+
+  <div id="sidebar-content">
+
+    <!-- Points tab -->
+    <div class="tab-panel active" id="tab-points">
+      <div class="section-title">Фильтр по категории</div>
+      <div id="cat-filter"></div>
+      <div class="section-title">Точки (<span id="pts-count">0</span>)</div>
+      <div id="points-list"></div>
+    </div>
+
+    <!-- Categories tab -->
+    <div class="tab-panel" id="tab-categories">
+      <div class="section-title">Категории</div>
+      <div id="cat-list"></div>
+      <div class="section-title">Добавить категорию</div>
+      <div class="form-group">
+        <label>Название</label>
+        <input type="text" id="new-cat-name" placeholder="Авто, Гос. учреждения..." />
+      </div>
+      <button class="btn btn-primary" id="add-cat-btn">Добавить категорию</button>
+    </div>
+
+    <!-- Add/edit point tab -->
+    <div class="tab-panel" id="tab-add">
+      <div class="section-title" id="form-title">Новая точка</div>
+      <div class="form-group">
+        <label>Название точки</label>
+        <input type="text" id="pt-name" placeholder="Центральный вокзал" />
+      </div>
+      <div class="form-group">
+        <label>Категория</label>
+        <select id="pt-cat"></select>
+      </div>
+      <div class="form-group">
+        <label>Базовая цена (₽)</label>
+        <input type="number" id="pt-price" value="500" min="0" />
+        <div class="hint">Используется если нет координат</div>
+      </div>
+      <div class="form-group">
+        <label>Координаты X, Y</label>
+        <div style="display:flex;gap:6px">
+          <input type="number" id="pt-x" placeholder="X" />
+          <input type="number" id="pt-y" placeholder="Y" />
+        </div>
+        <div class="hint">Кликните на карту для автозаполнения</div>
+      </div>
+      <button class="btn btn-primary" id="save-pt-btn">Сохранить точку</button>
+      <button class="btn btn-secondary" id="cancel-pt-btn" style="display:none;margin-top:6px">Отмена</button>
+    </div>
+
+  </div><!-- /sidebar-content -->
+</div>
+
+<!-- ─── Map area ─── -->
+<div id="map-area">
+  <canvas id="map-canvas"></canvas>
+  <div id="map-hint">Нажмите на карту чтобы задать координаты точки</div>
+  <div id="coords-display">X: 0, Y: 0</div>
+
+  <div id="zoom-controls">
+    <button class="zoom-btn" id="zoom-in">+</button>
+    <button class="zoom-btn" id="zoom-reset">⟳</button>
+    <button class="zoom-btn" id="zoom-out">−</button>
+  </div>
+
+  <div id="toolbar">
+    <button class="tool-btn" id="load-map-btn">🗺 Загрузить фото карты</button>
+    <button class="tool-btn" id="export-btn">📤 Экспорт JSON</button>
+    <button class="tool-btn" id="import-btn">📥 Импорт JSON</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" />
+    <input type="file" id="map-image-file" accept="image/*" style="display:none" />
+  </div>
+</div>
+
+<script>
+// ─────────────────────── STATE ────────────────────────────────
+let state = {
+  categories: [],
+  points: [],
+  // canvas
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  mapImage: null,
+  mapImageUrl: null,
+  // interaction
+  selectedPointId: null,
+  editingPointId: null,
+  filterCat: null,
+  isPanning: false,
+  lastMouse: { x: 0, y: 0 },
+};
+
+const STORAGE_KEY = 'taxi_map_editor_v1';
+const POINT_COLORS = ['#7c8cff','#22c55e','#f59e0b','#ef4444','#06b6d4','#a855f7','#ec4899','#14b8a6'];
+
+// ─────────────────────── PERSISTENCE ──────────────────────────
+function save() {
+  const data = { categories: state.categories, points: state.points, mapImageUrl: state.mapImageUrl };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    state.categories = data.categories || [];
+    state.points = data.points || [];
+    if (data.mapImageUrl) {
+      loadImageFromUrl(data.mapImageUrl);
+    }
+  } catch(e) {}
+}
+
+function loadImageFromUrl(url) {
+  const img = new Image();
+  img.onload = () => { state.mapImage = img; state.mapImageUrl = url; redraw(); };
+  img.src = url;
+}
+
+// ─────────────────────── CANVAS SETUP ─────────────────────────
+const canvas = document.getElementById('map-canvas');
+const ctx    = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const area = document.getElementById('map-area');
+  canvas.width  = area.clientWidth;
+  canvas.height = area.clientHeight;
+  redraw();
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ─────────────────────── DRAWING ──────────────────────────────
+function worldToScreen(wx, wy) {
+  return { x: wx * state.zoom + state.panX, y: wy * state.zoom + state.panY };
+}
+function screenToWorld(sx, sy) {
+  return { x: (sx - state.panX) / state.zoom, y: (sy - state.panY) / state.zoom };
+}
+
+function getCatColor(catId) {
+  const idx = state.categories.findIndex(c => c.id === catId);
+  return POINT_COLORS[idx % POINT_COLORS.length] || '#7c8cff';
+}
+
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Background grid
+  ctx.fillStyle = '#0f1117';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawGrid();
+
+  // Map image
+  if (state.mapImage) {
+    const { x, y } = worldToScreen(0, 0);
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(state.mapImage, x, y, state.mapImage.width * state.zoom, state.mapImage.height * state.zoom);
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw points
+  const visible = state.filterCat
+    ? state.points.filter(p => p.categoryId === state.filterCat)
+    : state.points;
+
+  for (const pt of visible) {
+    if (pt.x === undefined || pt.y === undefined) continue;
+    const { x, y } = worldToScreen(pt.x, pt.y);
+    const color = getCatColor(pt.categoryId);
+    const isSelected = pt.id === state.selectedPointId;
+
+    // Shadow
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = isSelected ? 12 : 4;
+
+    // Circle
+    ctx.beginPath();
+    ctx.arc(x, y, isSelected ? 10 : 7, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Border
+    ctx.beginPath();
+    ctx.arc(x, y, isSelected ? 10 : 7, 0, Math.PI * 2);
+    ctx.strokeStyle = isSelected ? '#fff' : 'rgba(255,255,255,0.4)';
+    ctx.lineWidth   = isSelected ? 2 : 1;
+    ctx.stroke();
+
+    // Label
+    ctx.font = isSelected ? 'bold 12px system-ui' : '11px system-ui';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur  = 4;
+    ctx.fillText(pt.name, x, y - 14);
+    ctx.shadowBlur  = 0;
+  }
+}
+
+function drawGrid() {
+  const step = 50 * state.zoom;
+  if (step < 8) return;
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  const startX = state.panX % step;
+  const startY = state.panY % step;
+  for (let x = startX; x < canvas.width; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = startY; y < canvas.height; y += step) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+}
+
+// ─────────────────────── INTERACTION ──────────────────────────
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 1 || e.button === 2) {
+    state.isPanning = true; state.lastMouse = { x: e.clientX, y: e.clientY }; return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+
+  // Check hit on existing point
+  const hit = hitTest(sx, sy);
+  if (hit) {
+    state.selectedPointId = hit.id;
+    document.getElementById('pt-x').value = Math.round(hit.x);
+    document.getElementById('pt-y').value = Math.round(hit.y);
+    document.getElementById('pt-name').value = hit.name;
+    document.getElementById('pt-price').value = hit.defaultPrice || 500;
+    document.getElementById('pt-cat').value = hit.categoryId || '';
+    state.editingPointId = hit.id;
+    document.getElementById('form-title').textContent = 'Редактировать точку';
+    document.getElementById('cancel-pt-btn').style.display = '';
+    setActiveTab('add');
+    redraw(); renderPointsList(); return;
+  }
+
+  // Place pending coords
+  const { x, y } = screenToWorld(sx, sy);
+  document.getElementById('pt-x').value = Math.round(x);
+  document.getElementById('pt-y').value = Math.round(y);
+  setActiveTab('add');
+  redraw();
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (state.isPanning) {
+    state.panX += e.clientX - state.lastMouse.x;
+    state.panY += e.clientY - state.lastMouse.y;
+    state.lastMouse = { x: e.clientX, y: e.clientY };
+    redraw(); return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  document.getElementById('coords-display').textContent = `X: ${Math.round(w.x)}, Y: ${Math.round(w.y)}`;
+});
+
+canvas.addEventListener('mouseup', () => { state.isPanning = false; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  state.panX = sx - (sx - state.panX) * factor;
+  state.panY = sy - (sy - state.panY) * factor;
+  state.zoom = Math.max(0.1, Math.min(8, state.zoom * factor));
+  redraw();
+}, { passive: false });
+
+function hitTest(sx, sy) {
+  for (const pt of [...state.points].reverse()) {
+    if (pt.x === undefined) continue;
+    const { x, y } = worldToScreen(pt.x, pt.y);
+    if (Math.hypot(sx - x, sy - y) <= 12) return pt;
+  }
+  return null;
+}
+
+// ─────────────────────── ZOOM CONTROLS ────────────────────────
+document.getElementById('zoom-in').addEventListener('click', () => {
+  state.zoom = Math.min(8, state.zoom * 1.2); redraw();
+});
+document.getElementById('zoom-out').addEventListener('click', () => {
+  state.zoom = Math.max(0.1, state.zoom / 1.2); redraw();
+});
+document.getElementById('zoom-reset').addEventListener('click', () => {
+  state.zoom = 1; state.panX = 0; state.panY = 0; redraw();
+});
+
+// ─────────────────────── TABS ─────────────────────────────────
+function setActiveTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tabId));
+}
+document.querySelectorAll('.tab-btn').forEach(b => {
+  b.addEventListener('click', () => setActiveTab(b.dataset.tab));
+});
+
+// ─────────────────────── CATEGORIES ───────────────────────────
+function renderCatList() {
+  // Sidebar categories tab
+  const list = document.getElementById('cat-list');
+  list.innerHTML = '';
+  for (const c of state.categories) {
+    const el = document.createElement('div');
+    el.className = 'cat-item';
+    el.innerHTML = `<span class="cat-item-name" style="color:${getCatColor(c.id)}">${c.name}</span>
+      <button class="cat-del-btn" data-id="${c.id}">Удалить</button>`;
+    list.querySelector ? list.appendChild(el) : (list.innerHTML += ''); list.appendChild(el);
+  }
+  list.querySelectorAll('.cat-del-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.id;
+      state.categories = state.categories.filter(c => c.id !== id);
+      state.points = state.points.filter(p => p.categoryId !== id);
+      save(); renderAll();
+    });
+  });
+
+  // Category filter (points tab)
+  const filter = document.getElementById('cat-filter');
+  filter.innerHTML = '';
+  const allBadge = document.createElement('span');
+  allBadge.className = 'cat-badge' + (!state.filterCat ? ' active' : '');
+  allBadge.style.background = '#2d3148'; allBadge.style.color = '#e2e8f0';
+  allBadge.textContent = 'Все';
+  allBadge.addEventListener('click', () => { state.filterCat = null; renderAll(); });
+  filter.appendChild(allBadge);
+  for (const c of state.categories) {
+    const badge = document.createElement('span');
+    badge.className = 'cat-badge' + (state.filterCat === c.id ? ' active' : '');
+    badge.style.background = getCatColor(c.id) + '33';
+    badge.style.color = getCatColor(c.id);
+    badge.textContent = c.name;
+    badge.addEventListener('click', () => { state.filterCat = c.id; renderAll(); });
+    filter.appendChild(badge);
+  }
+
+  // Category select in add form
+  const sel = document.getElementById('pt-cat');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— выберите категорию —</option>';
+  for (const c of state.categories) {
+    sel.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+  }
+  if (prev) sel.value = prev;
+}
+
+document.getElementById('add-cat-btn').addEventListener('click', () => {
+  const name = document.getElementById('new-cat-name').value.trim();
+  if (!name) return;
+  state.categories.push({ id: 'cat_' + Date.now(), name });
+  document.getElementById('new-cat-name').value = '';
+  save(); renderAll();
+});
+
+// ─────────────────────── POINTS LIST ──────────────────────────
+function renderPointsList() {
+  const list = document.getElementById('points-list');
+  const visible = state.filterCat
+    ? state.points.filter(p => p.categoryId === state.filterCat)
+    : state.points;
+  document.getElementById('pts-count').textContent = visible.length;
+  list.innerHTML = '';
+  for (const pt of visible) {
+    const cat = state.categories.find(c => c.id === pt.categoryId);
+    const color = getCatColor(pt.categoryId);
+    const el = document.createElement('div');
+    el.className = 'point-item' + (pt.id === state.selectedPointId ? ' selected' : '');
+    el.innerHTML = `
+      <div class="point-name" style="color:${color}">${pt.name}</div>
+      <div class="point-meta">${cat ? cat.name : '—'} | ${pt.defaultPrice || 0}₽ | X:${pt.x ?? '—'} Y:${pt.y ?? '—'}</div>
+      <div class="point-actions">
+        <button class="btn-edit-small" data-id="${pt.id}">Изменить</button>
+        <button class="btn-del-small" data-id="${pt.id}">Удалить</button>
+      </div>`;
+    list.appendChild(el);
+  }
+  list.querySelectorAll('.btn-edit-small').forEach(b => {
+    b.addEventListener('click', e => { e.stopPropagation(); const pt = state.points.find(p => p.id === b.dataset.id); if (!pt) return;
+      state.selectedPointId = pt.id; state.editingPointId = pt.id;
+      document.getElementById('pt-name').value  = pt.name;
+      document.getElementById('pt-cat').value   = pt.categoryId || '';
+      document.getElementById('pt-price').value = pt.defaultPrice || 500;
+      document.getElementById('pt-x').value     = pt.x ?? '';
+      document.getElementById('pt-y').value     = pt.y ?? '';
+      document.getElementById('form-title').textContent = 'Редактировать точку';
+      document.getElementById('cancel-pt-btn').style.display = '';
+      setActiveTab('add'); redraw();
+    });
+  });
+  list.querySelectorAll('.btn-del-small').forEach(b => {
+    b.addEventListener('click', e => { e.stopPropagation();
+      state.points = state.points.filter(p => p.id !== b.dataset.id);
+      if (state.selectedPointId === b.dataset.id) state.selectedPointId = null;
+      save(); renderAll();
+    });
+  });
+}
+
+// ─────────────────────── ADD / EDIT POINT ─────────────────────
+document.getElementById('save-pt-btn').addEventListener('click', () => {
+  const name  = document.getElementById('pt-name').value.trim();
+  const catId = document.getElementById('pt-cat').value;
+  const price = parseInt(document.getElementById('pt-price').value) || 500;
+  const x     = document.getElementById('pt-x').value !== '' ? parseInt(document.getElementById('pt-x').value) : undefined;
+  const y     = document.getElementById('pt-y').value !== '' ? parseInt(document.getElementById('pt-y').value) : undefined;
+
+  if (!name) { alert('Введите название точки'); return; }
+
+  if (state.editingPointId) {
+    const idx = state.points.findIndex(p => p.id === state.editingPointId);
+    if (idx !== -1) state.points[idx] = { ...state.points[idx], name, categoryId: catId, defaultPrice: price, x, y };
+  } else {
+    state.points.push({ id: 'pt_' + Date.now(), name, categoryId: catId, defaultPrice: price, x, y });
+  }
+
+  // Reset form
+  document.getElementById('pt-name').value  = '';
+  document.getElementById('pt-price').value = '500';
+  document.getElementById('pt-x').value     = '';
+  document.getElementById('pt-y').value     = '';
+  document.getElementById('form-title').textContent = 'Новая точка';
+  document.getElementById('cancel-pt-btn').style.display = 'none';
+  state.editingPointId  = null;
+  state.selectedPointId = null;
+
+  save(); renderAll(); setActiveTab('points');
+});
+
+document.getElementById('cancel-pt-btn').addEventListener('click', () => {
+  state.editingPointId = null; state.selectedPointId = null;
+  document.getElementById('form-title').textContent = 'Новая точка';
+  document.getElementById('cancel-pt-btn').style.display = 'none';
+  document.getElementById('pt-name').value  = '';
+  document.getElementById('pt-x').value = ''; document.getElementById('pt-y').value = '';
+  redraw(); renderPointsList();
+});
+
+// ─────────────────────── EXPORT ───────────────────────────────
+document.getElementById('export-btn').addEventListener('click', () => {
+  const data = { categories: state.categories, points: state.points };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'taxi_points.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ─────────────────────── IMPORT ───────────────────────────────
+document.getElementById('import-btn').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (confirm(`Импортировать ${data.points?.length || 0} точек и ${data.categories?.length || 0} категорий? Текущие данные будут заменены.`)) {
+        state.categories = data.categories || [];
+        state.points     = data.points || [];
+        save(); renderAll();
+      }
+    } catch(err) { alert('Ошибка чтения файла: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// ─────────────────────── MAP IMAGE ────────────────────────────
+document.getElementById('load-map-btn').addEventListener('click', () => {
+  document.getElementById('map-image-file').click();
+});
+document.getElementById('map-image-file').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    state.mapImageUrl = ev.target.result;
+    loadImageFromUrl(ev.target.result);
+    save();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+// ─────────────────────── RENDER ALL ───────────────────────────
+function renderAll() {
+  renderCatList();
+  renderPointsList();
+  redraw();
+}
+
+// ─────────────────────── INIT ─────────────────────────────────
+load();
+renderAll();
+</script>
+</body>
+</html>
