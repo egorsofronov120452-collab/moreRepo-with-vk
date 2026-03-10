@@ -688,7 +688,7 @@ async function handleDeliveryDM(event) {
       await sendMessage(peerId, `Статус заказа: ${statusMap[order.status] || order.status}\nКурьер: ${order.courierNick || 'не назначен'}`, {}, 2);
       return;
     }
-    if (text === 'Ссылка на курьера') {
+    if (text === 'Ссы��ка на курьера') {
       const order = storage.activeOrders.get(sess.data.orderId);
       if (!order || !order.courierId) { await sendMessage(peerId, 'Курьер ещё не назначен.', {}, 2); return; }
       sess.data.awaitingCourierLinkConfirm = true;
@@ -894,6 +894,24 @@ async function buildPurchaseScreen(uid, order) {
   order.purchaseMsgId = msgId;
 }
 
+async function buildTaxiDriverScreen(uid, order) {
+  const passText = order.passengers && order.passengers.length
+    ? `\nПопутчики: ${order.passengers.join(', ')}`
+    : '';
+  const payText = order.payment?.type === 'cash' ? 'Наличными'
+    : order.payment?.type === 'phone' ? 'Счёт телефона' : 'Банковский счёт';
+  const text = `Такси #${order.id.slice(-6)}\n\nКлиент: ${order.nick}${passText}\nОткуда: ${order.from?.name || '—'}\nКуда: ${order.to?.name || '—'}\nСумма: ${order.finalPrice}р. (${payText})`;
+
+  const buttons = [
+    [{ label: 'Прибыл к клиенту', color: 'positive', payload: { action: 'courier_arrived', orderId: order.id } }],
+    [{ label: 'Платное ожидание', color: 'secondary', payload: { action: 'taxi_paid_waiting', orderId: order.id } }],
+    [{ label: 'Завершить поездку', color: 'positive', payload: { action: 'finish_order', orderId: order.id } }],
+    [{ label: `Связь с клиентом: vk.me/id${order.clientId}`, color: 'secondary', payload: { action: 'noop' } }],
+  ];
+  const msgId = await sendMessage(uid, text, { keyboard: kb(buttons) }, 1);
+  order.driverMsgId = msgId;
+}
+
 // ─────────────────────────── STAFF: GROUP 1 DMs ───────────────
 const STAFF_STEP = {
   NONE:           'none',
@@ -954,8 +972,12 @@ async function handleGroup1DM(event) {
       `Ваш заказ принят!\nКурьер: ${order.courierNick}\nПримерное время ожидания: ${order.eta}`,
       { keyboard: msgKb([[{ label: 'Статус заказа' }, { label: 'Ссылка на курьера' }], [{ label: 'Главное меню', color: 'secondary' }]]) }, 2);
 
-    // Build purchase screen for courier
-    await buildPurchaseScreen(uid, order);
+    // For delivery: build purchase/cooking screen; for taxi: show driver action screen
+    if (order.type === 'taxi') {
+      await buildTaxiDriverScreen(uid, order);
+    } else {
+      await buildPurchaseScreen(uid, order);
+    }
 
     storage.staffSessions.delete(uid);
     return;
@@ -1936,7 +1958,7 @@ async function handleTaxiPointAdmin(uid, peerId, text, event) {
     return true;
   }
 
-  if (text === 'Добавить категорию точек') {
+  if (text === 'Добавить катег��рию точек') {
     sess.step = 'taxi_pt_cat_name'; storage.adminSessions.set(uid, sess);
     await sendMessage(peerId, 'Введите название категории точек (напр. «Авто», «Гос. учреждения»):', {}, 1);
     return true;
@@ -2585,16 +2607,21 @@ async function handleCallback(event, groupKey) {
     return;
   }
 
-  // Start delivery
+  // Start delivery (delivery only — for taxi the driver uses "Прибыл" directly)
   if (action === 'start_deliver') {
     const { orderId } = payload;
     const order = storage.activeOrders.get(orderId) || storage.activeTaxi.get(orderId);
     if (!order) return;
     order.status = 'delivering';
+    const gKey = order.type === 'taxi' ? 3 : 2;
     // Remind courier
-    await sendMessage(uid, `Напоминание:\nКлиент: ${order.nick}\nАдрес: ${order.address || (order.from?.name + ' → ' + order.to?.name) || '—'}\nСумма: ${order.total || order.finalPrice}р.`, {}, 1);
+    await sendMessage(uid,
+      `Напоминание:\nКлиент: ${order.nick}\nАдрес: ${order.address || ((order.from?.name || '') + ' → ' + (order.to?.name || '')) || '—'}\nСумма: ${order.total || order.finalPrice}р.`,
+      {}, 1);
     // Notify client
-    await sendMessage(order.clientId, `Заказ готов! Курьер ${order.courierNick} едет к вам.`, { keyboard: msgKb([[{ label: 'Статус заказа' }], [{ label: 'Ссылка на курьера' }]]) }, order.type === 'taxi' ? 3 : 2);
+    await sendMessage(order.clientId,
+      `Заказ готов! ${order.type === 'taxi' ? 'Водитель' : 'Курьер'} ${order.courierNick} едет к вам.`,
+      { keyboard: msgKb([[{ label: 'Статус заказа' }], [{ label: 'Ссылка на курьера' }]]) }, gKey);
     return;
   }
 
@@ -2702,24 +2729,21 @@ async function handleEvent(event, groupKey) {
       // Journal commands in zhurnal chat
       if (peerId === CHATS.zhurnal) {
         await handleJournalMessage(msg);
-        await handleStatsCommand(msg);
+        // !стата is also valid in journal chat
+        if ((msg.text || '').trim().toLowerCase() === '!стата') {
+          await handleStatsCommand(msg);
+        }
         return;
       }
 
-      // !стата in any chat
-      if ((msg.text || '').trim().toLowerCase() === '!стата') {
-        await handleStatsCommand(msg);
-        return;
-      }
-
-      // Chat commands
+      // Chat commands (includes !стата, !диагностика, moderation etc.)
       if (peerId > 2000000000) {
-        const handled = await handleChatCommand(msg, groupKey);
+        await handleChatCommand(msg, groupKey);
         return;
       }
 
-      // DMs
-      if (peerId === uid) {
+      // DMs — peer_id equals the user's vk id for private messages
+      if (peerId > 0 && peerId === uid) {
         if (groupKey === 2) {
           await handleDeliveryDM(msg);
         } else if (groupKey === 3) {
